@@ -113,7 +113,7 @@ func spanToLog(data *agentV3.SegmentObject, span *agentV3.SpanObject) (*sls.Log,
 	contents = append(contents, appendAttributeToLogContent(SpanKind, getSpanKind(span)))
 
 	return &sls.Log{
-		Time:     proto.Uint32(uint32(span.StartTime / int64(1000000))),
+		Time:     proto.Uint32(uint32(span.StartTime / int64(1000))),
 		Contents: contents,
 	}, nil
 }
