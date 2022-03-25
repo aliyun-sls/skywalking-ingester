@@ -35,12 +35,12 @@ func main() {
 				continue
 			}
 
-			otData, e := converter.Convert(orginData)
+			otData, t, e := converter.Convert(orginData)
 			if e != nil {
 				fmt.Println("Failed to convert data. ", e, "data: ", hex.EncodeToString(orginData.Data()))
 			}
 
-			err := exporter.Export(otData)
+			err := exporter.Export(t, otData)
 			if err != nil {
 				fmt.Println("Failed to export data.", e)
 			}

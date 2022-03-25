@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/aliyun-sls/skywalking-ingester/modules"
 	sls "github.com/aliyun/aliyun-log-go-sdk"
 	"github.com/golang/protobuf/proto"
+	v3 "skywalking.apache.org/repo/goapi/collect/common/v3"
 	agentV3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 )
 
 type Converter interface {
-	Convert(modules.OriginData) (*sls.LogGroup, error)
+	Convert(modules.OriginData) (*sls.LogGroup, modules.DataType, error)
 }
 
 func NewConverter() Converter {
@@ -22,15 +24,15 @@ func NewConverter() Converter {
 type convertImpl struct {
 }
 
-func (c *convertImpl) Convert(data modules.OriginData) (*sls.LogGroup, error) {
+func (c *convertImpl) Convert(data modules.OriginData) (*sls.LogGroup, modules.DataType, error) {
 	if data == nil {
-		return nil, nil
+		return nil, modules.NOOP, nil
 	}
 
 	switch data.(type) {
 	case *modules.SegmentOriginData:
 		if segment, err := c.convertSegmentObject(data.Data()); err != nil {
-			return nil, err
+			return nil, modules.TRACE, err
 		} else {
 			return c.convertSegment(segment)
 		}
@@ -39,7 +41,7 @@ func (c *convertImpl) Convert(data modules.OriginData) (*sls.LogGroup, error) {
 	case *modules.LogggingOriginData:
 		return c.convertLogging(data.Data())
 	default:
-		return nil, nil
+		return nil, modules.NOOP, nil
 	}
 }
 
@@ -57,12 +59,12 @@ func (c *convertImpl) convertSegmentObject(data []byte) (segmentObject *agentV3.
 	return segmentObject, nil
 }
 
-func (c *convertImpl) convertSegment(data *agentV3.SegmentObject) (slsData *sls.LogGroup, e error) {
+func (c *convertImpl) convertSegment(data *agentV3.SegmentObject) (*sls.LogGroup, DataType, error) {
 	if data == nil || len(data.Spans) == 0 {
-		return nil, nil
+		return nil, modules.TRACE, nil
 	}
 
-	slsData = &sls.LogGroup{
+	slsData := &sls.LogGroup{
 		Topic:  proto.String("0.0.0.0"),
 		Source: proto.String(""),
 	}
@@ -75,7 +77,7 @@ func (c *convertImpl) convertSegment(data *agentV3.SegmentObject) (slsData *sls.
 		}
 	}
 
-	return slsData, nil
+	return slsData, modules.TRACE, nil
 }
 
 func spanToLog(data *agentV3.SegmentObject, span *agentV3.SpanObject) (*sls.Log, error) {
@@ -249,10 +251,167 @@ func (c *convertImpl) convertToMetric() {
 
 }
 
-func (c *convertImpl) convertMetric(data []byte) (*sls.LogGroup, error) {
-	return nil, nil
+func (c *convertImpl) convertMetric(data []byte) (l *sls.LogGroup, a modules.DataType, e error) {
+	defer func() {
+		if err := recover(); err != nil {
+			e = fmt.Errorf("Failed to convert metric")
+		}
+	}()
+
+	jvmMetric := &agentV3.JVMMetricCollection{}
+	if e = proto.Unmarshal(data, jvmMetric); e != nil {
+		return nil, modules.METRIC, e
+	}
+
+	if len(jvmMetric.Metrics) == 0 {
+		return nil, modules.METRIC, nil
+	}
+
+	logs := make([]*sls.Log, 0)
+
+	for _, metric := range jvmMetric.Metrics {
+		c.convertCPU(jvmMetric, metric, metric.Cpu, logs)
+		c.convertMemoryData(jvmMetric, metric, metric.Memory, logs)
+		c.convertGCData(jvmMetric, metric, metric.Gc, logs)
+		c.convertMemoryPool(jvmMetric, metric, metric.MemoryPool, logs)
+		c.convertThread(jvmMetric, metric, logs)
+	}
+	return &sls.LogGroup{
+		Source: proto.String("0.0.0.0"),
+		Logs:   logs,
+	}, modules.METRIC, nil
+
 }
 
-func (c *convertImpl) convertLogging(data []byte) (*sls.LogGroup, error) {
-	return nil, nil
+func (c *convertImpl) convertThread(jvmMetric *agentV3.JVMMetricCollection, metric *agentV3.JVMMetric, logs []*sls.Log) error {
+	serviceName := newPair("service", jvmMetric.GetService())
+	serviceInstance := newPair("serviceInstance", jvmMetric.GetServiceInstance())
+
+	logs = append(logs, newMetric("skywalking_jvm_threads_live", metric.Time, strconv.FormatInt(metric.Thread.LiveCount, 10), serviceName, serviceInstance))
+	logs = append(logs, newMetric("skywalking_jvm_threads_daemon", metric.Time, strconv.FormatInt(metric.Thread.DaemonCount, 10), serviceName, serviceInstance))
+	logs = append(logs, newMetric("skywalking_jvm_threads_peak", metric.Time, strconv.FormatInt(metric.Thread.PeakCount, 10), serviceName, serviceInstance))
+	return nil
+}
+
+func (c *convertImpl) convertCPU(jvmMetric *agentV3.JVMMetricCollection, metric *agentV3.JVMMetric, cpu *v3.CPU, logs []*sls.Log) error {
+	serviceName := newPair("service", jvmMetric.GetService())
+	serviceInstance := newPair("serviceInstance", jvmMetric.GetServiceInstance())
+	logs = append(logs, newMetric("skywalking_jvm_cpu_usage", metric.Time, strconv.FormatFloat(cpu.UsagePercent, 'f', 6, 64), serviceName, serviceInstance))
+	return nil
+}
+
+type Pair struct {
+	key   string
+	value string
+}
+
+func newPair(key string, value string) *Pair {
+	return &Pair{
+		key:   key,
+		value: value,
+	}
+}
+
+func newMetric(metric string, time int64, value string, labels ...*Pair) *sls.Log {
+	strTime := strconv.FormatInt(time, 10)
+	contents := make([]*sls.LogContent, 0)
+
+	contents = append(contents, &sls.LogContent{
+		Key:   proto.String("__name__"),
+		Value: proto.String(metric),
+	})
+
+	contents = append(contents, &sls.LogContent{
+		Key:   proto.String("__time_nano__"),
+		Value: proto.String(strTime),
+	})
+
+	builder := strings.Builder{}
+	for index, l := range labels {
+		if index != 0 {
+			builder.WriteString("|")
+		}
+		builder.WriteString(l.key)
+		builder.WriteString("#$#")
+		builder.WriteString(l.value)
+	}
+
+	contents = append(contents, &sls.LogContent{
+		Key:   proto.String("__labels__"),
+		Value: proto.String(builder.String()),
+	})
+
+	contents = append(contents, &sls.LogContent{
+		Key:   proto.String("__value__"),
+		Value: proto.String(value),
+	})
+
+	return &sls.Log{
+		Time:     proto.Uint32(uint32(time / int64(1000))),
+		Contents: contents,
+	}
+}
+
+func (c *convertImpl) convertMemoryPool(jvmMetric *agentV3.JVMMetricCollection, metric *agentV3.JVMMetric, memoryPool []*agentV3.MemoryPool, logs []*sls.Log) (e error) {
+	if len(memoryPool) == 0 {
+		return nil
+	}
+
+	serviceName := newPair("service", jvmMetric.GetService())
+	serviceInstance := newPair("serviceInstance", jvmMetric.GetServiceInstance())
+
+	for _, i := range memoryPool {
+		memoryType := newPair("type", i.GetType().String())
+		logs = append(logs, newMetric("skywalking_jvm_memory_pool_committed", metric.GetTime(), strconv.FormatInt(i.Committed, 10), serviceName, serviceInstance, memoryType))
+		logs = append(logs, newMetric("skywalking_jvm_memory_pool_init", metric.GetTime(), strconv.FormatInt(i.Init, 10), serviceName, serviceInstance, memoryType))
+		logs = append(logs, newMetric("skywalking_jvm_memory_pool_max", metric.GetTime(), strconv.FormatInt(i.Max, 10), serviceName, serviceInstance, memoryType))
+		logs = append(logs, newMetric("skywalking_jvm_memory_pool_used", metric.GetTime(), strconv.FormatInt(i.Used, 10), serviceName, serviceInstance, memoryType))
+	}
+
+	return nil
+}
+
+func (c *convertImpl) convertGCData(jvmMetric *agentV3.JVMMetricCollection, metric *agentV3.JVMMetric, gc []*agentV3.GC, logs []*sls.Log) (e error) {
+	if len(gc) == 0 {
+		return nil
+	}
+
+	serviceName := newPair("service", jvmMetric.GetService())
+	serviceInstance := newPair("serviceInstance", jvmMetric.GetServiceInstance())
+
+	for _, g := range gc {
+		phrase := newPair("phrase", g.GetPhase().String())
+		logs = append(logs, newMetric("skywalking_jvm_gc_time", metric.GetTime(), strconv.FormatInt(g.GetTime(), 10), phrase, serviceName, serviceInstance))
+		logs = append(logs, newMetric("skywalking_jvm_gc_count", metric.GetTime(), strconv.FormatInt(g.GetCount(), 10), phrase, serviceName, serviceInstance))
+	}
+
+	return nil
+}
+
+func (c *convertImpl) convertMemoryData(jvmMetric *agentV3.JVMMetricCollection, metric *agentV3.JVMMetric, memory []*agentV3.Memory, logs []*sls.Log) (e error) {
+	if len(memory) == 0 {
+		return nil
+	}
+
+	serviceName := newPair("service", jvmMetric.GetService())
+	serviceInstance := newPair("serviceInstance", jvmMetric.GetServiceInstance())
+
+	for _, m := range memory {
+		memType := "nonheap"
+
+		if m.IsHeap {
+			memType = "heap"
+		}
+		memTypeLabel := newPair("type", memType)
+		logs = append(logs, newMetric("skywalking_jvm_memory_committed", metric.GetTime(), strconv.FormatInt(m.Committed, 10), serviceName, serviceInstance, memTypeLabel))
+		logs = append(logs, newMetric("skywalking_jvm_memory_init", metric.GetTime(), strconv.FormatInt(m.Init, 10), serviceName, serviceInstance, memTypeLabel))
+		logs = append(logs, newMetric("skywalking_jvm_memory_max", metric.GetTime(), strconv.FormatInt(m.Max, 10), serviceName, serviceInstance, memTypeLabel))
+		logs = append(logs, newMetric("skywalking_jvm_memory_used", metric.GetTime(), strconv.FormatInt(m.Used, 10), serviceName, serviceInstance, memTypeLabel))
+	}
+
+	return e
+}
+
+func (c *convertImpl) convertLogging(data []byte) (*sls.LogGroup, modules.DataType, error) {
+	return nil, modules.LOGGING, nil
 }

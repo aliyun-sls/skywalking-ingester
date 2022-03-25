@@ -18,6 +18,15 @@ func NewOriginData(config configure.Configuration, topic string, data []byte) Or
 	return nil
 }
 
+type DataType int32
+
+const (
+	TRACE   DataType = 1
+	METRIC           = 2
+	LOGGING          = 3
+	NOOP             = 4
+)
+
 type SegmentOriginData struct {
 	D []byte
 }
