@@ -7,7 +7,7 @@ import (
 
 	"github.com/aliyun-sls/skywalking-ingester/modules"
 	sls "github.com/aliyun/aliyun-log-go-sdk"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	agentV3 "skywalking.apache.org/repo/goapi/collect/language/agent/v3"
 )
 
@@ -90,11 +90,11 @@ func spanToLog(data *agentV3.SegmentObject, span *agentV3.SpanObject) (*sls.Log,
 	// name
 	contents = append(contents, appendAttributeToLogContent(OperationName, span.OperationName))
 	// start time
-	contents = append(contents, appendAttributeToLogContent(StartTime, fmt.Sprint(span.StartTime*1000)))
+	contents = append(contents, appendAttributeToLogContent(StartTime, strconv.FormatInt(span.StartTime*1000, 10)))
 	// end time
-	contents = append(contents, appendAttributeToLogContent(EndTime, fmt.Sprint(span.EndTime*1000)))
+	contents = append(contents, appendAttributeToLogContent(EndTime, strconv.FormatInt(span.EndTime*1000, 10)))
 	// duration
-	contents = append(contents, appendAttributeToLogContent(Duration, fmt.Sprint(span.EndTime*1000-span.StartTime*1000)))
+	contents = append(contents, appendAttributeToLogContent(Duration, strconv.FormatInt(span.EndTime*1000-span.StartTime*1000, 10)))
 	// service
 	contents = append(contents, appendAttributeToLogContent(ServiceName, data.GetService()))
 	// attribute
@@ -113,7 +113,7 @@ func spanToLog(data *agentV3.SegmentObject, span *agentV3.SpanObject) (*sls.Log,
 	contents = append(contents, appendAttributeToLogContent(SpanKind, getSpanKind(span)))
 
 	return &sls.Log{
-		Time:     proto.Uint32(uint32(span.StartTime)),
+		Time:     proto.Uint32(uint32(span.StartTime / int64(1000000))),
 		Contents: contents,
 	}, nil
 }

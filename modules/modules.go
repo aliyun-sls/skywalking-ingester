@@ -9,35 +9,35 @@ type OriginData interface {
 func NewOriginData(config configure.Configuration, topic string, data []byte) OriginData {
 	switch topic {
 	case config.SegmentTopic():
-		return &SegmentOriginData{d: data}
+		return &SegmentOriginData{D: data}
 	case config.MetricTopic():
-		return &MetricOriginData{d: data}
+		return &MetricOriginData{D: data}
 	case config.LoggingTopic():
-		return &LogggingOriginData{d: data}
+		return &LogggingOriginData{D: data}
 	}
 	return nil
 }
 
 type SegmentOriginData struct {
-	d []byte
+	D []byte
 }
 
 func (s *SegmentOriginData) Data() []byte {
-	return s.d
+	return s.D
 }
 
 type MetricOriginData struct {
-	d []byte
+	D []byte
 }
 
 func (s *MetricOriginData) Data() []byte {
-	return s.d
+	return s.D
 }
 
 type LogggingOriginData struct {
-	d []byte
+	D []byte
 }
 
 func (s *LogggingOriginData) Data() []byte {
-	return s.d
+	return s.D
 }

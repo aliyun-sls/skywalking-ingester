@@ -3,3 +3,4 @@
 *.log
 tmp/
 receiver/receiver_test.go
+converter/converter_test.go
