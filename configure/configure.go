@@ -21,6 +21,12 @@ type Configuration interface {
 	GroupID() string
 }
 
+const (
+	METRIC_TOPIC   = "skywalking-metrics"
+	SEGMENTS_TOPIC = "skywalking-segments"
+	LOGGING_TOPIC  = "skywalking-logging"
+)
+
 var (
 	endpoint         string
 	ak               string
@@ -130,15 +136,24 @@ func (c *configurationImpl) TraceInstance() string {
 }
 
 func (c *configurationImpl) MetricTopic() string {
-	return c.namespace + "-skywalking-metrics"
+	if c.namespace == "" {
+		return METRIC_TOPIC
+	}
+	return fmt.Sprint("%s-%s", c.namespace, METRIC_TOPIC)
 }
 
 func (c *configurationImpl) SegmentTopic() string {
-	return c.namespace + "-skywalking-segments"
+	if c.namespace == "" {
+		return SEGMENTS_TOPIC
+	}
+	return fmt.Sprint("%s-%s", c.namespace, SEGMENTS_TOPIC)
 }
 
 func (c *configurationImpl) LoggingTopic() string {
-	return c.namespace + "-skywalking-logging"
+	if c.namespace == "" {
+		return LOGGING_TOPIC
+	}
+	return fmt.Sprint("%s-%s", c.namespace, LOGGING_TOPIC)
 }
 
 func (c *configurationImpl) GroupID() string {

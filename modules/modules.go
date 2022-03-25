@@ -6,9 +6,14 @@ type OriginData interface {
 	Data() []byte
 }
 
-func NewOriginData(config configure.Configuration, topic *string, data []byte) OriginData {
+func NewOriginData(config configure.Configuration, topic string, data []byte) OriginData {
 	switch topic {
-
+	case config.SegmentTopic():
+		return &SegmentOriginData{d: data}
+	case config.MetricTopic():
+		return &MetricOriginData{d: data}
+	case config.LoggingTopic():
+		return &LogggingOriginData{d: data}
 	}
 	return nil
 }

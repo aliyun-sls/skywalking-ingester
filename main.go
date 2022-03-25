@@ -37,7 +37,7 @@ func main() {
 
 			otData, e := converter.Convert(orginData)
 			if e != nil {
-				fmt.Println("Failed to convert data. ", e, hex.EncodeToString(orginData.Data()))
+				fmt.Println("Failed to convert data. ", e, "data: ", hex.EncodeToString(orginData.Data()))
 			}
 
 			err := exporter.Export(otData)

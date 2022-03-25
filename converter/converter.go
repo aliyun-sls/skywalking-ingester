@@ -44,6 +44,12 @@ func (c *convertImpl) Convert(data modules.OriginData) (*sls.LogGroup, error) {
 }
 
 func (c *convertImpl) convertSegmentObject(data []byte) (segmentObject *agentV3.SegmentObject, e error) {
+	defer func() {
+		if r := recover(); r != nil {
+			e = fmt.Errorf("Parse segement object failed")
+		}
+	}()
+
 	segmentObject = &agentV3.SegmentObject{}
 	if e = proto.Unmarshal(data, segmentObject); e != nil {
 		return nil, e

@@ -42,7 +42,7 @@ func (r *KafkaReceiver) ReceiveData() (modules.OriginData, error) {
 
 	switch e := ev.(type) {
 	case *kafka.Message:
-		return modules.NewOriginData(r.config, e.TopicPartition.Topic, e.Value), nil
+		return modules.NewOriginData(r.config, *e.TopicPartition.Topic, e.Value), nil
 	case *kafka.Error:
 		return nil, e
 	default:

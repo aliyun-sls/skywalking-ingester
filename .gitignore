@@ -2,3 +2,4 @@
 .idea
 *.log
 tmp/
+receiver/receiver_test.go
